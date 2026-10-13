@@ -36,6 +36,8 @@ type CartInput struct {
 	Approval            *ApprovalInput  `json:"approval"`
 	CustomerID          *uuid.UUID      `json:"customer_id"`
 	VoucherCode         string          `json:"voucher_code" validate:"max=40"`
+
+	skipTagRule bool // offline sync: the tag rule was enforced at the edge; a sale that already happened is never refused for it
 }
 
 type Line struct {
@@ -276,7 +278,7 @@ func (s *Service) priceCartAt(ctx context.Context, q *gen.Queries, p *access.Pri
 		if v.ProductStatus != "active" || v.VariantStatus != "active" {
 			return nil, nil, apperr.Conflict("ITEM_NOT_SELLABLE", v.ProductName+" is not active")
 		}
-		if v.IsRfidTracked && epc == "" && cs.snap.Bool("rfid.require_tag_at_pos") {
+		if v.IsRfidTracked && epc == "" && !in.skipTagRule && cs.snap.Bool("rfid.require_tag_at_pos") {
 			return nil, nil, apperr.Conflict("TAG_REQUIRED", v.ProductName+" must be sold by scanning its RFID tag")
 		}
 		if epc != "" {

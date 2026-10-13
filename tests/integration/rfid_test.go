@@ -786,7 +786,7 @@ func TestSecurityWorkflowOverviewAndRules(t *testing.T) {
 		Tags    map[string]int64                      `json:"tags"`
 	}
 	lp.mustOK("GET", "/security/overview", nil, &ov)
-	if ov.Total < 6 || ov.Active < 5 || ov.ActiveCritical < 1 || len(ov.ByType) != 8 || len(ov.ByDay) != 7 || len(ov.ByStore) != 1 {
+	if ov.Total < 6 || ov.Active < 5 || ov.ActiveCritical < 1 || len(ov.ByType) != 9 || len(ov.ByDay) != 7 || len(ov.ByStore) != 1 {
 		t.Fatalf("overview %+v", ov)
 	}
 	if ov.Readers == nil || ov.Readers.Total != 1 || ov.Readers.Online != 1 || ov.Tags["ON_SHELF"] != 3 {

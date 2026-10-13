@@ -11,7 +11,7 @@ FROM terminal_sync_tokens k JOIN pos_terminals t ON t.id = k.terminal_id JOIN st
 WHERE k.token_hash = $1;
 
 -- name: TouchTerminalSync :exec
-UPDATE terminal_sync_tokens SET last_sync_at = now(), last_ip = sqlc.arg(ip), pending = sqlc.arg(pending),
+UPDATE terminal_sync_tokens SET last_sync_at = now(), last_ip = sqlc.arg(ip), pending = CASE WHEN sqlc.arg(pending)::int < 0 THEN pending ELSE sqlc.arg(pending)::int END,
     agent_version = CASE WHEN sqlc.arg(version)::text = '' THEN agent_version ELSE sqlc.arg(version)::text END,
     snapshot_version = CASE WHEN sqlc.arg(snapshot_version)::text = '' THEN snapshot_version ELSE sqlc.arg(snapshot_version)::text END
 WHERE terminal_id = sqlc.arg(terminal_id);
@@ -55,11 +55,11 @@ WHERE p.company_id = sqlc.arg(company_id) AND p.status = 'active' AND (p.ends_at
 ORDER BY p.id;
 
 -- name: SnapshotMembers :many
--- Members who have shopped in this store recently (the people who will come back), capped so the snapshot stays small.
+-- Members of this store, who shopped here recently, or who just joined (the people who will come back), capped so the snapshot stays small.
 SELECT c.id, c.member_no, c.name, c.phone, c.level_id, l.name AS level_name, l.earn_multiplier, c.points_balance
 FROM customers c JOIN membership_levels l ON l.id = c.level_id
 WHERE c.company_id = sqlc.arg(company_id) AND c.status = 'active'
-  AND (c.home_store_id = sqlc.arg(store_id) OR EXISTS (SELECT 1 FROM sales s WHERE s.customer_id = c.id AND s.store_id = sqlc.arg(store_id) AND s.created_at > sqlc.arg(since)::timestamptz))
+  AND (c.home_store_id = sqlc.arg(store_id) OR c.created_at > sqlc.arg(since)::timestamptz OR EXISTS (SELECT 1 FROM sales s WHERE s.customer_id = c.id AND s.store_id = sqlc.arg(store_id) AND s.created_at > sqlc.arg(since)::timestamptz))
 ORDER BY c.last_purchase_at DESC NULLS LAST, c.id
 LIMIT sqlc.arg(row_limit);
 
@@ -80,6 +80,10 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true) RETURNING *;
 
 -- name: GetShiftByClientID :one
 SELECT * FROM cashier_shifts WHERE terminal_id = $1 AND client_shift_id = $2;
+
+-- name: FindShiftAt :one
+-- The shift that was running on a terminal at a given moment (sales synced without a usable shift reference land here).
+SELECT * FROM cashier_shifts WHERE terminal_id = $1 AND opened_at <= $2 ORDER BY opened_at DESC LIMIT 1;
 
 -- name: CloseShiftAt :one
 UPDATE cashier_shifts SET status = 'closed', closed_at = $7, closed_by = $2, expected_cash = $3, counted_cash = $4, variance = $5, note = $6

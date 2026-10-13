@@ -41,9 +41,10 @@ const (
 	HighDiscount     = "HIGH_DISCOUNT"
 	CashVariance     = "CASH_VARIANCE"
 	ReaderOffline    = "READER_OFFLINE"
+	OfflinePrice     = "OFFLINE_PRICE_MISMATCH" // an offline sale carried prices far from what the server computes
 )
 
-var Types = []string{UnauthorizedExit, UnknownTag, RFIDMismatch, ExcessiveVoids, LargeRefund, HighDiscount, CashVariance, ReaderOffline}
+var Types = []string{UnauthorizedExit, UnknownTag, RFIDMismatch, ExcessiveVoids, LargeRefund, HighDiscount, CashVariance, ReaderOffline, OfflinePrice}
 
 type Event struct {
 	CompanyID  uuid.UUID

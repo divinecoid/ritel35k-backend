@@ -22,6 +22,7 @@ import (
 	"github.com/ritel35k/backend/internal/shift"
 	"github.com/ritel35k/backend/internal/voucher"
 	"github.com/ritel35k/backend/pkg/apperr"
+	"github.com/ritel35k/backend/pkg/posoffline"
 )
 
 type PaymentInput struct {
@@ -44,71 +45,21 @@ type applied struct {
 	reference string
 }
 
-// allocatePayments validates the tender against the bill and computes change.
-// Non-cash tenders must not exceed the bill; cash can, and the excess is returned as change.
+// allocatePayments validates the tender against the bill and computes change (shared with the offline till).
 func allocatePayments(grand decimal.Decimal, pays []PaymentInput, enabled []string) ([]applied, decimal.Decimal, error) {
-	if grand.IsZero() {
-		if len(pays) > 0 {
-			return nil, decimal.Zero, apperr.Validation(map[string]string{"payments": "nothing to pay"})
-		}
-		return nil, decimal.Zero, nil
+	in := make([]posoffline.PayInput, len(pays))
+	for i, p := range pays {
+		in[i] = posoffline.PayInput{Method: p.Method, Amount: p.Amount, Reference: p.Reference}
 	}
-	if len(pays) == 0 {
-		return nil, decimal.Zero, apperr.New(422, "PAYMENT_INSUFFICIENT", "Payment is required")
+	out, change, err := posoffline.Allocate(grand, in, enabled)
+	if err != nil {
+		return nil, decimal.Zero, err
 	}
-	ok := map[string]bool{}
-	for _, m := range enabled {
-		ok[m] = true
+	res := make([]applied, len(out))
+	for i, a := range out {
+		res[i] = applied{method: a.Method, amount: a.Amount, tendered: a.Tendered, reference: a.Reference}
 	}
-	var noncash, cash []applied
-	nonSum := decimal.Zero
-	for _, p := range pays {
-		m := strings.ToUpper(strings.TrimSpace(p.Method))
-		if !ok[m] {
-			return nil, decimal.Zero, apperr.New(422, "PAYMENT_METHOD_DISABLED", "Payment method not enabled for this store: "+m)
-		}
-		if !p.Amount.IsPositive() {
-			return nil, decimal.Zero, apperr.Validation(map[string]string{"payments": "amounts must be positive"})
-		}
-		if m == "CASH" {
-			cash = append(cash, applied{method: m, tendered: p.Amount, reference: p.Reference})
-		} else {
-			noncash = append(noncash, applied{method: m, amount: p.Amount, tendered: p.Amount, reference: p.Reference})
-			nonSum = nonSum.Add(p.Amount)
-		}
-	}
-	if nonSum.GreaterThan(grand) {
-		return nil, decimal.Zero, apperr.New(422, "PAYMENT_EXCESS", "Non-cash payments exceed the total")
-	}
-	remaining := grand.Sub(nonSum)
-	if remaining.IsZero() && len(cash) > 0 {
-		return nil, decimal.Zero, apperr.New(422, "PAYMENT_EXCESS", "Cash is not needed: the total is already covered")
-	}
-	cashTendered := decimal.Zero
-	for _, c := range cash {
-		cashTendered = cashTendered.Add(c.tendered)
-	}
-	if cashTendered.LessThan(remaining) {
-		return nil, decimal.Zero, apperr.New(422, "PAYMENT_INSUFFICIENT", "Payment is less than the total").WithDetails(map[string]string{"short_by": remaining.Sub(cashTendered).String()})
-	}
-	change := cashTendered.Sub(remaining)
-	left := remaining
-	for i := range cash {
-		take := decimal.Min(cash[i].tendered, left)
-		cash[i].amount = take
-		left = left.Sub(take)
-	}
-	out := append(noncash, cash...)
-	final := out[:0]
-	for _, a := range out {
-		if a.amount.IsPositive() {
-			final = append(final, a)
-		} else {
-			// a cash line fully consumed by change cannot be represented; reject so the till stays honest
-			return nil, decimal.Zero, apperr.New(422, "PAYMENT_EXCESS", "A cash line is not needed to cover the total")
-		}
-	}
-	return final, change, nil
+	return res, change, nil
 }
 
 type SaleDetail struct {

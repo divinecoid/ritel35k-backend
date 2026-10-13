@@ -10,6 +10,7 @@ import (
 	"github.com/ritel35k/backend/internal/httpx"
 	"github.com/ritel35k/backend/internal/httpx/middleware"
 	"github.com/ritel35k/backend/internal/httpx/response"
+	"github.com/ritel35k/backend/internal/security"
 	"github.com/ritel35k/backend/pkg/apperr"
 	"github.com/ritel35k/backend/pkg/pagination"
 )
@@ -26,6 +27,11 @@ func (h *Handler) Routes(r chi.Router, g *middleware.Guard) {
 		r.With(g.AnyPerm(PermCreate, PermView, PermTerminal)).Get("/terminals", h.terminals)
 		r.With(g.Perm(PermTerminal)).Post("/terminals", h.createTerminal)
 		r.With(g.Perm(PermTerminal)).Patch("/terminals/{id}", h.updateTerminal)
+
+		r.With(g.Perm(PermTerminal)).Post("/terminals/{id}/sync-token", h.syncToken)
+		r.With(g.AnyPerm(PermCreate, PermView, PermTerminal)).Get("/sync-status", h.syncStatus)
+		r.With(g.Perm(security.PermView)).Get("/exceptions", h.exceptions)
+		r.With(g.Perm(security.PermResolve)).Post("/exceptions/{id}/review", h.reviewException)
 
 		r.With(g.Perm(PermCreate)).Post("/quote", h.quote)
 		r.With(g.Perm(PermCreate)).Post("/sales", h.checkout)
@@ -239,4 +245,69 @@ func (h *Handler) ret(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response.Created(w, out)
+}
+
+func (h *Handler) syncToken(w http.ResponseWriter, r *http.Request) {
+	id, err := httpx.PathUUID(r, "id")
+	if err != nil {
+		h.Fail(w, r, err)
+		return
+	}
+	tok, hint, err := h.svc.IssueSyncToken(r.Context(), id)
+	if err != nil {
+		h.Fail(w, r, err)
+		return
+	}
+	response.Created(w, map[string]string{"token": tok, "hint": hint})
+}
+
+func (h *Handler) syncStatus(w http.ResponseWriter, r *http.Request) {
+	sid, err := httpx.QueryUUID(r, "store_id")
+	if err != nil {
+		h.Fail(w, r, err)
+		return
+	}
+	out, err := h.svc.SyncStatus(r.Context(), sid)
+	if err != nil {
+		h.Fail(w, r, err)
+		return
+	}
+	response.OK(w, out)
+}
+
+func (h *Handler) exceptions(w http.ResponseWriter, r *http.Request) {
+	sid, err := httpx.QueryUUID(r, "store_id")
+	if err != nil {
+		h.Fail(w, r, err)
+		return
+	}
+	out, meta, err := h.svc.Exceptions(r.Context(), ExceptionFilter{StoreID: sid, Status: r.URL.Query().Get("status"), Type: r.URL.Query().Get("type")}, pagination.FromRequest(r))
+	if err != nil {
+		h.Fail(w, r, err)
+		return
+	}
+	response.OKMeta(w, out, meta)
+}
+
+type reviewRequest struct {
+	Status string `json:"status" validate:"required,oneof=reviewed dismissed"`
+	Note   string `json:"note" validate:"max=500"`
+}
+
+func (h *Handler) reviewException(w http.ResponseWriter, r *http.Request) {
+	id, err := httpx.PathUUID(r, "id")
+	if err != nil {
+		h.Fail(w, r, err)
+		return
+	}
+	var req reviewRequest
+	if err := httpx.Bind(r, &req); err != nil {
+		h.Fail(w, r, err)
+		return
+	}
+	if err := h.svc.ReviewException(r.Context(), id, req.Status, req.Note); err != nil {
+		h.Fail(w, r, err)
+		return
+	}
+	response.OK(w, map[string]string{"status": req.Status})
 }

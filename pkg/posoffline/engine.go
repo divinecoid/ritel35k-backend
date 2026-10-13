@@ -380,3 +380,45 @@ func (e *Engine) pointsFor(amount, multiplier decimal.Decimal) int64 {
 	}
 	return amount.Div(s.EarnPerAmount).Floor().Mul(multiplier).Floor().IntPart()
 }
+
+// PriceFor is the shelf price of one variant (default lists, no member level) for search results.
+func (e *Engine) PriceFor(variant uuid.UUID, qty decimal.Decimal, at time.Time) (decimal.Decimal, bool) {
+	p, ok := e.resolveBest(variant, qty, nil, at)
+	return p.Price, ok
+}
+
+// SearchItems finds items by exact barcode/SKU or by name (case-insensitive, every word must match), best first.
+func (e *Engine) SearchItems(q string, limit int) []Item {
+	q = strings.TrimSpace(q)
+	if q == "" || limit <= 0 {
+		return nil
+	}
+	if id, ok := e.byBarcode[q]; ok {
+		return []Item{*e.byVariant[id]}
+	}
+	lq := strings.ToLower(q)
+	words := strings.Fields(lq)
+	var exact, rest []Item
+	for _, it := range e.snap.Items {
+		if strings.ToLower(it.SKU) == lq {
+			exact = append(exact, it)
+			continue
+		}
+		name := strings.ToLower(it.Name + " " + it.SKU)
+		match := true
+		for _, w := range words {
+			if !strings.Contains(name, w) {
+				match = false
+				break
+			}
+		}
+		if match {
+			rest = append(rest, it)
+		}
+	}
+	out := append(exact, rest...)
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out
+}

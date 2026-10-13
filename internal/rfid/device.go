@@ -68,8 +68,9 @@ func (d *Device) Auth(next http.Handler) http.Handler {
 	})
 }
 
-func (d *Device) Routes(r chi.Router) {
-	r.Route("/edge", func(r chi.Router) {
+// Mount adds the reader endpoints to the shared /edge router (other device APIs, e.g. POS terminals, live beside them).
+func (d *Device) Mount(r chi.Router) {
+	r.Group(func(r chi.Router) {
 		r.Use(d.Auth)
 		r.Post("/events", d.events)
 		r.Get("/snapshot", d.snapshot)

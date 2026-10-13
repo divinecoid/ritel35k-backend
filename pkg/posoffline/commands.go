@@ -63,6 +63,7 @@ type SaleCommand struct {
 	LocalNumber     string          `json:"local_number"` // the number printed on the offline receipt
 	SnapshotVersion string          `json:"snapshot_version"`
 	CustomerID      *uuid.UUID      `json:"customer_id,omitempty"`
+	CartDiscountPct decimal.Decimal `json:"cart_discount_percent"`
 	Lines           []Line          `json:"lines"`
 	Subtotal        decimal.Decimal `json:"subtotal"`
 	DiscountTotal   decimal.Decimal `json:"discount_total"`
@@ -106,4 +107,5 @@ const (
 	ExMemberMissing = "MEMBER_MISSING" // the member no longer exists: no points credited
 	ExPaymentMethod = "PAYMENT_METHOD" // a payment method that is disabled for the store now
 	ExStaleSnapshot = "STALE_SNAPSHOT" // sold with a catalogue much older than the server's
+	ExRejectedSale  = "REJECTED_SALE"  // could not be booked at all (no shift, inconsistent payment): the full payload is kept for manual entry
 )

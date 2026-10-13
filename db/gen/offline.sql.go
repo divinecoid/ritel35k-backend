@@ -143,6 +143,40 @@ func (q *Queries) CreateOfflineShift(ctx context.Context, arg CreateOfflineShift
 	return i, err
 }
 
+const findShiftAt = `-- name: FindShiftAt :one
+SELECT id, company_id, store_id, terminal_id, cashier_id, status, opening_cash, opened_at, closed_at, closed_by, expected_cash, counted_cash, variance, note, client_shift_id, offline FROM cashier_shifts WHERE terminal_id = $1 AND opened_at <= $2 ORDER BY opened_at DESC LIMIT 1
+`
+
+type FindShiftAtParams struct {
+	TerminalID uuid.UUID `json:"terminal_id"`
+	OpenedAt   time.Time `json:"opened_at"`
+}
+
+// The shift that was running on a terminal at a given moment (sales synced without a usable shift reference land here).
+func (q *Queries) FindShiftAt(ctx context.Context, arg FindShiftAtParams) (CashierShift, error) {
+	row := q.db.QueryRow(ctx, findShiftAt, arg.TerminalID, arg.OpenedAt)
+	var i CashierShift
+	err := row.Scan(
+		&i.ID,
+		&i.CompanyID,
+		&i.StoreID,
+		&i.TerminalID,
+		&i.CashierID,
+		&i.Status,
+		&i.OpeningCash,
+		&i.OpenedAt,
+		&i.ClosedAt,
+		&i.ClosedBy,
+		&i.ExpectedCash,
+		&i.CountedCash,
+		&i.Variance,
+		&i.Note,
+		&i.ClientShiftID,
+		&i.Offline,
+	)
+	return i, err
+}
+
 const getOfflineException = `-- name: GetOfflineException :one
 SELECT e.id, e.company_id, e.store_id, e.terminal_id, e.sale_id, e.shift_id, e.type, e.severity, e.title, e.detail, e.status, e.dedupe_key, e.created_at, e.reviewed_by, e.reviewed_at, e.review_note, o.path::text AS path FROM offline_exceptions e JOIN stores s ON s.id = e.store_id JOIN org_units o ON o.id = s.org_unit_id
 WHERE e.id = $1 AND e.company_id = $2
@@ -645,7 +679,7 @@ const snapshotMembers = `-- name: SnapshotMembers :many
 SELECT c.id, c.member_no, c.name, c.phone, c.level_id, l.name AS level_name, l.earn_multiplier, c.points_balance
 FROM customers c JOIN membership_levels l ON l.id = c.level_id
 WHERE c.company_id = $1 AND c.status = 'active'
-  AND (c.home_store_id = $2 OR EXISTS (SELECT 1 FROM sales s WHERE s.customer_id = c.id AND s.store_id = $2 AND s.created_at > $3::timestamptz))
+  AND (c.home_store_id = $2 OR c.created_at > $3::timestamptz OR EXISTS (SELECT 1 FROM sales s WHERE s.customer_id = c.id AND s.store_id = $2 AND s.created_at > $3::timestamptz))
 ORDER BY c.last_purchase_at DESC NULLS LAST, c.id
 LIMIT $4
 `
@@ -668,7 +702,7 @@ type SnapshotMembersRow struct {
 	PointsBalance  int64           `json:"points_balance"`
 }
 
-// Members who have shopped in this store recently (the people who will come back), capped so the snapshot stays small.
+// Members of this store, who shopped here recently, or who just joined (the people who will come back), capped so the snapshot stays small.
 func (q *Queries) SnapshotMembers(ctx context.Context, arg SnapshotMembersParams) ([]SnapshotMembersRow, error) {
 	rows, err := q.db.Query(ctx, snapshotMembers,
 		arg.CompanyID,
@@ -850,7 +884,7 @@ func (q *Queries) SnapshotPromotions(ctx context.Context, arg SnapshotPromotions
 }
 
 const touchTerminalSync = `-- name: TouchTerminalSync :exec
-UPDATE terminal_sync_tokens SET last_sync_at = now(), last_ip = $1, pending = $2,
+UPDATE terminal_sync_tokens SET last_sync_at = now(), last_ip = $1, pending = CASE WHEN $2::int < 0 THEN pending ELSE $2::int END,
     agent_version = CASE WHEN $3::text = '' THEN agent_version ELSE $3::text END,
     snapshot_version = CASE WHEN $4::text = '' THEN snapshot_version ELSE $4::text END
 WHERE terminal_id = $5

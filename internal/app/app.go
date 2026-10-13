@@ -32,6 +32,7 @@ import (
 	"github.com/ritel35k/backend/internal/product"
 	"github.com/ritel35k/backend/internal/promotion"
 	"github.com/ritel35k/backend/internal/purchasing"
+	"github.com/ritel35k/backend/internal/replenishment"
 	"github.com/ritel35k/backend/internal/report"
 	"github.com/ritel35k/backend/internal/rfid"
 	"github.com/ritel35k/backend/internal/role"
@@ -104,7 +105,11 @@ func (a *App) Handler() http.Handler {
 	authH := auth.NewHandler(base, a.Auth)
 	r.Route("/api/v1", func(r chi.Router) {
 		// store devices (RFID readers/gates) authenticate with their own token, never a user session
-		rfid.NewDevice(base, a.Tx).Routes(r)
+		posSvc := pos.NewService(a.Tx, approver{a.Auth})
+		r.Route("/edge", func(r chi.Router) {
+			rfid.NewDevice(base, a.Tx).Mount(r)
+			pos.NewDevice(base, a.Tx, posSvc).Mount(r)
+		})
 		r.Group(func(r chi.Router) {
 			r.Use(middleware.NewIPRateLimit(a.Cfg.AuthRatePerMin, a.Cfg.AuthRateBurst, a.Cfg.TrustProxy, log).Middleware)
 			authH.PublicRoutes(r)
@@ -124,8 +129,10 @@ func (a *App) Handler() http.Handler {
 			inventory.NewHandler(base, inventory.NewService(a.Tx)).Routes(r, guard)
 			pricing.NewHandler(base, pricing.NewService(a.Tx)).Routes(r, guard)
 			shift.NewHandler(base, shift.NewService(a.Tx)).Routes(r, guard)
-			pos.NewHandler(base, pos.NewService(a.Tx, approver{a.Auth})).Routes(r, guard)
-			purchasing.NewHandler(base, purchasing.NewService(a.Tx)).Routes(r, guard)
+			pos.NewHandler(base, posSvc).Routes(r, guard)
+			purchasingSvc := purchasing.NewService(a.Tx)
+			purchasing.NewHandler(base, purchasingSvc).Routes(r, guard)
+			replenishment.NewHandler(base, replenishment.NewService(a.Tx, purchasingSvc)).Routes(r, guard)
 			transfer.NewHandler(base, transfer.NewService(a.Tx)).Routes(r, guard)
 			stockcount.NewHandler(base, stockcount.NewService(a.Tx)).Routes(r, guard)
 			customer.NewHandler(base, customer.NewService(a.Tx)).Routes(r, guard)
