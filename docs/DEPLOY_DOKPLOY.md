@@ -92,3 +92,35 @@ Di komputer kasir tiap toko jalankan `ritel35k-edge` (build dari `edge/`, butuh 
 - Ganti password SSH server yang pernah dituliskan di chat; pakai SSH key.
 - `JWT_SECRET`, password DB, dan password owner hanya di environment Dokploy, bukan di git.
 - Batasi akses Postgres ke jaringan internal (jangan publish port 5432).
+
+## 8. Server 156.67.219.209 (nginx di depan, bukan Traefik)
+Di server ini port 80/443 dipegang **nginx** milik host, bukan Traefik Dokploy. Pola yang dipakai semua app: publish port host
+dari Dokploy (31xx/80xx) lalu nginx memproksi domain ke port itu. Hasil deploy RITEL35K:
+
+| Service | Port host | Domain |
+|---|---|---|
+| ritel35k-web | 3130 → 3000 | `ritel35k.divine.co.id` |
+| ritel35k-api | 3131 → 8080 | `ritel35k-be.divine.co.id` (butuh A record → 156.67.219.209) |
+| ritel35k-worker | – | – |
+| ritel35k-db (postgres:17) | tidak dipublish | – |
+
+Contoh vhost nginx (frontend; `X-Forwarded-*` **wajib** agar login tidak 403):
+
+```nginx
+server {
+    server_name ritel35k.divine.co.id;
+    location / {
+        proxy_pass http://127.0.0.1:3130;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_http_version 1.1;
+        proxy_buffering off;          # SSE (live dashboard)
+        proxy_read_timeout 1h;
+    }
+    listen 443 ssl; # certbot --nginx -d ritel35k.divine.co.id
+}
+```
+Vhost API sama, `proxy_pass http://127.0.0.1:3131;` (tanpa kebutuhan `X-Forwarded-Host`; `X-Forwarded-For` tetap dikirim).
+Setelah TLS aktif: `sudo certbot --nginx -d ritel35k.divine.co.id -d ritel35k-be.divine.co.id`.
