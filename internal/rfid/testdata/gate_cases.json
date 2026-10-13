@@ -1,0 +1,21 @@
+{
+  "comment": "Shared contract: the backend (DecideGate) and the edge agent (Decide) must give the same allow/alarm answer for every case here. Fields: tag.store is same|other relative to the gate's store; sold_offset_seconds is when the tag was sold relative to the read (negative = before). edge_result overrides result where the edge cannot know (it only holds its own store's tags).",
+  "grace_seconds": 120,
+  "cases": [
+    {"name": "sold item leaves", "tag": {"status": "SOLD", "store": "same", "sold_offset_seconds": -60}, "direction": "out", "result": "allow"},
+    {"name": "sold item, unknown sale time", "tag": {"status": "SOLD", "store": "same"}, "direction": "unknown", "result": "allow"},
+    {"name": "sold during slow checkout (within grace)", "tag": {"status": "SOLD", "store": "same", "sold_offset_seconds": 90}, "direction": "out", "result": "allow"},
+    {"name": "sold long after the read", "tag": {"status": "SOLD", "store": "same", "sold_offset_seconds": 600}, "direction": "out", "result": "alarm", "type": "UNAUTHORIZED_EXIT"},
+    {"name": "unpaid on shelf", "tag": {"status": "ON_SHELF", "store": "same"}, "direction": "out", "result": "alarm", "type": "UNAUTHORIZED_EXIT"},
+    {"name": "unpaid in stock", "tag": {"status": "IN_STOCK", "store": "same"}, "direction": "unknown", "result": "alarm", "type": "UNAUTHORIZED_EXIT"},
+    {"name": "reserved item leaving", "tag": {"status": "RESERVED", "store": "same"}, "direction": "out", "result": "alarm", "type": "UNAUTHORIZED_EXIT"},
+    {"name": "returned item leaving again", "tag": {"status": "RETURNED", "store": "same"}, "direction": "out", "result": "alarm", "type": "UNAUTHORIZED_EXIT"},
+    {"name": "walking in with stock", "tag": {"status": "ON_SHELF", "store": "same"}, "direction": "in", "result": "ignored"},
+    {"name": "lost tag leaving", "tag": {"status": "LOST", "store": "same"}, "direction": "out", "result": "alarm", "type": "RFID_MISMATCH"},
+    {"name": "damaged tag leaving", "tag": {"status": "DAMAGED", "store": "same"}, "direction": "out", "result": "alarm", "type": "RFID_MISMATCH"},
+    {"name": "another store's unpaid tag", "tag": {"status": "ON_SHELF", "store": "other"}, "direction": "out", "result": "alarm", "type": "RFID_MISMATCH", "edge_result": "allow"},
+    {"name": "another store's sold tag", "tag": {"status": "SOLD", "store": "other", "sold_offset_seconds": -3600}, "direction": "out", "result": "allow", "edge_result": "allow"},
+    {"name": "unknown tag, quiet", "tag": null, "direction": "out", "report_unknown": false, "alarm_on_unknown": false, "result": "allow"},
+    {"name": "unknown tag, opted in", "tag": null, "direction": "out", "report_unknown": true, "alarm_on_unknown": true, "result": "alarm", "type": "UNKNOWN_TAG"}
+  ]
+}
