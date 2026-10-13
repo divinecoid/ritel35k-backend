@@ -1,0 +1,5 @@
+# Browser → Caddy → SvelteKit (BFF proxies /api to the Go API). Only the frontend is exposed.
+:80 {
+	encode zstd gzip
+	reverse_proxy frontend:3000
+}

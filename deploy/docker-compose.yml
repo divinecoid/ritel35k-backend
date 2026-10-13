@@ -1,0 +1,78 @@
+# Local/staging stack (run from backend/): `docker compose -f deploy/docker-compose.yml up --build`
+# Run migrations once:  docker compose -f deploy/docker-compose.yml run --rm migrate
+# The frontend is built straight from its own repository.
+name: ritel35k
+
+x-backend-env: &backend-env
+  APP_ENV: prod
+  DATABASE_URL: postgres://ritel35k:${POSTGRES_PASSWORD:-ritel35k}@postgres:5432/ritel35k?sslmode=disable
+  REDIS_URL: redis://redis:6379/0
+  JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET (>=32 chars)}
+  CORS_ORIGINS: ${PUBLIC_URL:-http://localhost:8081}
+  TRUST_PROXY: "true"
+
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: ritel35k
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ritel35k}
+      POSTGRES_DB: ritel35k
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ritel35k"]
+      interval: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    volumes: [redisdata:/data]
+
+  minio:
+    image: minio/minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_USER:-ritel35k}
+      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD:-ritel35k-minio}
+    volumes: [miniodata:/data]
+
+  migrate:
+    build: ..
+    entrypoint: ["/app/migration", "up"]
+    environment: *backend-env
+    depends_on: { postgres: { condition: service_healthy } }
+    profiles: [tools]
+
+  api:
+    build: ..
+    environment: *backend-env
+    depends_on: { postgres: { condition: service_healthy } }
+    restart: unless-stopped
+
+  worker:
+    build: ..
+    entrypoint: ["/app/worker"]
+    environment: *backend-env
+    depends_on: { postgres: { condition: service_healthy } }
+    restart: unless-stopped
+
+  frontend:
+    build: https://github.com/divinecoid/ritel35k-frontend.git#main
+    environment:
+      API_URL: http://api:8080
+      # SvelteKit 3 adapter-node derives its origin from these headers (the ORIGIN env is ignored); Caddy/Traefik set them
+      PROTOCOL_HEADER: x-forwarded-proto
+      HOST_HEADER: x-forwarded-host
+    depends_on: [api]
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2
+    ports: ["8081:80"]
+    volumes: [./Caddyfile:/etc/caddy/Caddyfile:ro]
+    depends_on: [frontend]
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:
