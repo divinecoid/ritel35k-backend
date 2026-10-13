@@ -133,3 +133,14 @@ curl -fsSL https://raw.githubusercontent.com/divinecoid/ritel35k-backend/main/de
 less setup-nginx.sh            # baca dulu
 sudo bash setup-nginx.sh
 ```
+
+### Catatan: redeploy yang "selesai" tapi aplikasi tidak berubah
+Service dengan **port host** (mode `host`) tidak bisa menjalankan task baru berdampingan dengan yang lama (port bentrok), jadi
+rolling update `start-first` diam-diam gagal dan versi lama tetap berjalan walau status deploy `done`. Untuk web dan API sudah
+diset `updateConfigSwarm = { Parallelism: 1, Order: "stop-first", FailureAction: "rollback" }`. Cek cepat versi yang berjalan:
+`curl https://ritel35k.divine.co.id/_app/version.json` (berubah setiap build).
+
+## 9. Data awal
+`R35K_API=https://ritel35k-be.divine.co.id/api/v1 R35K_EMAIL=… R35K_PASSWORD=… python3 scripts/seed_fashion.py` — 2 region,
+3 toko, 19 produk / 57 SKU (kaos, sepatu, sandal, jepit rambut, kaos kaki, aksesori), 4 supplier terhubung ke SKU, stok awal per toko.
+Idempotent; password dari environment, bukan argumen.
