@@ -124,3 +124,12 @@ server {
 ```
 Vhost API sama, `proxy_pass http://127.0.0.1:3131;` (tanpa kebutuhan `X-Forwarded-Host`; `X-Forwarded-For` tetap dikirim).
 Setelah TLS aktif: `sudo certbot --nginx -d ritel35k.divine.co.id -d ritel35k-be.divine.co.id`.
+
+Cara cepat: jalankan skrip yang sudah menulis kedua vhost, menguji `nginx -t` (rollback bila gagal), me-reload nginx, dan
+meminta sertifikat:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/divinecoid/ritel35k-backend/main/deploy/setup-nginx.sh -o setup-nginx.sh
+less setup-nginx.sh            # baca dulu
+sudo bash setup-nginx.sh
+```
